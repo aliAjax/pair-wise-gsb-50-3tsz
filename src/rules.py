@@ -1,13 +1,38 @@
 """税务稽查案件与复议流程领域规则与状态转换。"""
 from typing import Any, Dict, Iterable, Tuple
 
-from .domain import Actor, Conflict, ValidationError, boolean, choice, integer, number, text, text_list
+from .domain import Conflict, ValidationError, choice, integer, number, text, text_list
 
 
 INITIAL_STATE = "opened"
 CREATE_ROLES = {'inspector'}
-ACTION_ROLES = {'investigate': {'inspector'}, 'propose': {'inspector'}, 'review': {'reviewer'}, 'appeal': {'taxpayer_rep'}, 'close': {'reviewer'}}
-TRANSITIONS = {'investigate': {'opened': 'investigating'}, 'propose': {'investigating': 'proposed'}, 'review': {'proposed': 'reviewed'}, 'appeal': {'reviewed': 'appealed'}, 'close': {'reviewed': 'closed', 'appealed': 'closed'}}
+ACTION_ROLES = {'investigate': {'inspector'}, 'propose': {'inspector'}, 'review': {'reviewer'}, 'appeal': {'taxpayer_rep'}, 'withdraw_appeal': {'taxpayer_rep'}, 'close': {'reviewer'}}
+TRANSITIONS = {'investigate': {'opened': 'investigating'}, 'propose': {'investigating': 'proposed'}, 'appeal': {'reviewed': 'appealed'}, 'withdraw_appeal': {'appealed': 'reviewed'}, 'close': {'reviewed': 'closed', 'appealed': 'closed'}}
+REVIEW_OUTCOMES = ['accepted', 'reduced', 'remanded']
+DECISION_STATUSES = ('pending', 'current', 'superseded')
+APPEAL_STATUSES = ('accepted', 'rejected_overdue', 'withdrawn', 'closed')
+
+# 提出建议时冻结进决定版本的字段：税期、证据和金额
+SNAPSHOT_FIELDS = ('taxpayer', 'tax_period', 'declared_tax', 'assessed_tax', 'tax_difference', 'interest', 'penalty', 'total_due', 'refund_due', 'penalty_rate', 'days_late', 'evidence_count', 'appeal_deadline_day')
+
+
+def _optional_integer(data: Dict[str, Any], key: str, default: int, minimum: int) -> int:
+    value = data.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValidationError("%s必须是整数" % key)
+    if value < minimum:
+        raise ValidationError("%s不能小于%s" % (key, minimum))
+    return value
+
+
+def _optional_factor(data: Dict[str, Any], key: str, default: float) -> float:
+    value = data.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValidationError("%s必须是数字" % key)
+    value = float(value)
+    if not 0.0 <= value <= 1.0:
+        raise ValidationError("%s只能在0到1之间" % key)
+    return value
 
 
 class DomainRules:
@@ -61,6 +86,7 @@ class DomainRules:
         return allowed
 
     def apply_action(self, record: Dict[str, Any], action: str, data: Dict[str, Any]) -> Tuple[str, Dict[str, Any], str]:
+        """无版本副作用的动作：立案调查与结案。"""
         new_state = self.require_transition(record, action)
         data = dict(data or {})
         p = dict(record["payload"])
@@ -69,28 +95,54 @@ class DomainRules:
         if action == "investigate":
             changes["investigation_plan"] = text(data, "plan")
             summary = "进入稽查调查"
-        elif action == "propose":
-            if int(p["evidence_count"]) <= 0:
-                raise ValidationError("没有证据不能提出处理建议")
-            changes["proposal"] = text(data, "proposal")
-            changes["proposed_amount"] = float(p["total_due"])
-            summary = "已提出补税和处罚建议"
-        elif action == "review":
-            outcome = choice(data, "outcome", ["accepted", "reduced", "remanded"])
-            changes["review_outcome"] = outcome
-            changes["review_note"] = text(data, "review_note")
-            if outcome == "reduced":
-                changes["total_due"] = round(float(p["total_due"]) * float(data.get("reduction_pct", 0.5)), 2)
-            summary = "复核完成"
-        elif action == "appeal":
-            appeal_day = integer(data, "appeal_day", 0)
-            if appeal_day > int(p["appeal_deadline_day"]):
-                raise ValidationError("复议申请超过期限")
-            changes["appeal_day"] = appeal_day
-            changes["appeal_reason"] = text(data, "appeal_reason")
-            summary = "复议申请已受理"
         elif action == "close":
             changes["final_decision"] = text(data, "final_decision")
             summary = "案件已结案"
         p.update(changes)
         return new_state, p, summary or ("已执行%s" % action)
+
+    # ---- 决定版本：建议冻结 ----
+
+    def freeze_proposal(self, payload: Dict[str, Any], data: Dict[str, Any]) -> Dict[str, Any]:
+        """形成建议时冻结税期、证据与金额，之后不再随记录变化。"""
+        if int(payload.get("evidence_count", 0)) <= 0:
+            raise ValidationError("没有证据不能提出处理建议")
+        snapshot = {field: payload[field] for field in SNAPSHOT_FIELDS}
+        snapshot["evidence_refs"] = text_list(data, "evidence_refs")
+        snapshot["proposal"] = text(data, "proposal")
+        return snapshot
+
+    def reduce_snapshot(self, snapshot: Dict[str, Any], data: Dict[str, Any]) -> Dict[str, Any]:
+        """复核调减按比例重算补税、滞纳金和处罚，产生一份新的冻结快照。"""
+        factor = _optional_factor(data, "reduction_pct", 0.5)
+        reduced = dict(snapshot)
+        reduced["tax_difference"] = round(float(snapshot["tax_difference"]) * factor, 2)
+        reduced["interest"] = round(float(snapshot["interest"]) * factor, 2)
+        reduced["penalty"] = round(float(snapshot["penalty"]) * factor, 2)
+        reduced["total_due"] = round(reduced["tax_difference"] + reduced["interest"] + reduced["penalty"], 2)
+        return reduced
+
+    def review_plan(self, pending_version: Dict[str, Any], data: Dict[str, Any]) -> Dict[str, Any]:
+        """解析复核意图；确认/调减时按送达日计算复议期限届满日。"""
+        outcome = choice(data, "outcome", REVIEW_OUTCOMES)
+        plan = {"outcome": outcome, "note": text(data, "review_note")}
+        if outcome in ("accepted", "reduced"):
+            service_day = _optional_integer(data, "service_day", 0, 0)
+            plan["service_day"] = service_day
+            plan["deadline_day"] = service_day + int(pending_version["snapshot"]["appeal_deadline_day"])
+        if outcome == "reduced":
+            plan["snapshot"] = self.reduce_snapshot(pending_version["snapshot"], data)
+        return plan
+
+    # ---- 复议登记：按送达日算期限 ----
+
+    def decide_appeal(self, current_version: Dict[str, Any], data: Dict[str, Any]) -> Tuple[str, int, int, int, str, str]:
+        """返回(状态, 申请日, 送达日, 届满日, 理由, 不予受理说明)。逾期也登记留痕。"""
+        appeal_day = integer(data, "appeal_day", 0)
+        reason = text(data, "appeal_reason")
+        service_day = int(current_version["service_day"])
+        deadline_day = int(current_version["deadline_day"])
+        if appeal_day > deadline_day:
+            explanation = "复议申请日为第%s天，晚于自送达日（第%s天）起算的期限届满日（第%s天），超过复议期限，不予受理" % (appeal_day, service_day, deadline_day)
+            return "rejected_overdue", appeal_day, service_day, deadline_day, reason, explanation
+        return "accepted", appeal_day, service_day, deadline_day, reason, ""

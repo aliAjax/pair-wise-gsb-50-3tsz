@@ -3,31 +3,285 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>税务稽查案件与复议流程</title>
+  <title>税务稽查案件与复议流程 · 决定版本制</title>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 2rem; color: #17212b; }
-    main { max-width: 960px; margin: auto; }
-    button { padding: .55rem .9rem; cursor: pointer; }
-    pre { background: #f4f6f8; padding: 1rem; overflow: auto; border-radius: 8px; }
-    .row { display: flex; gap: 1rem; align-items: center; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; color: #17212b; background: #f4f6f8; }
+    main { max-width: 1080px; margin: auto; padding: 2rem 1rem 4rem; }
+    h1 { font-size: 1.4rem; }
+    h2 { font-size: 1rem; margin: 0 0 .6rem; color: #33414f; }
+    .muted { color: #6b7785; font-size: .85rem; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; }
+    .card { background: #fff; border: 1px solid #e2e7ec; border-radius: 10px; padding: 1rem 1.1rem; }
+    .card.pending { border-color: #e0a83d; }
+    .card.current { border-color: #2f8f5b; }
+    .badge { display: inline-block; font-size: .72rem; padding: .12rem .5rem; border-radius: 999px; margin-left: .4rem; vertical-align: middle; }
+    .badge.current { background: #e3f4ea; color: #1f6b43; }
+    .badge.pending { background: #fdf2dc; color: #946a14; }
+    .badge.superseded { background: #eceff2; color: #6b7785; }
+    .badge.accepted, .badge.closed, .badge.done { background: #e3f4ea; color: #1f6b43; }
+    .badge.rejected_overdue { background: #fbe4e4; color: #a23535; }
+    .badge.withdrawn { background: #eceff2; color: #6b7785; }
+    .badge.open { background: #e7f0fb; color: #26598f; }
+    table { border-collapse: collapse; width: 100%; font-size: .85rem; }
+    th, td { text-align: left; padding: .3rem .4rem; border-bottom: 1px solid #eef1f4; vertical-align: top; }
+    th { color: #6b7785; font-weight: 600; white-space: nowrap; }
+    button { padding: .45rem .8rem; cursor: pointer; border: 1px solid #c3ccd5; background: #fff; border-radius: 6px; font-size: .85rem; }
+    button.primary { background: #2457a6; border-color: #2457a6; color: #fff; }
+    button.danger { color: #a23535; border-color: #d9a3a3; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    input, select, textarea { padding: .4rem .5rem; border: 1px solid #c3ccd5; border-radius: 6px; font-size: .85rem; width: 100%; box-sizing: border-box; }
+    label { font-size: .78rem; color: #4a5763; display: block; margin: .45rem 0 .15rem; }
+    .row { display: flex; gap: .6rem; flex-wrap: wrap; align-items: end; }
+    .row > div { flex: 1; min-width: 120px; }
+    pre { background: #1e2730; color: #d6e2ee; padding: .8rem; border-radius: 8px; overflow: auto; font-size: .78rem; max-height: 260px; }
+    .empty { color: #9aa5b0; font-size: .85rem; padding: .3rem 0; }
+    .warn { background: #fbe4e4; color: #8a2b2b; border-radius: 8px; padding: .5rem .7rem; font-size: .82rem; margin-top: .5rem; }
+    .todo-title { font-size: .85rem; }
+    ul { margin: 0; padding-left: 1.1rem; font-size: .85rem; }
   </style>
 </head>
 <body>
 <main>
-  <h1>税务稽查案件与复议流程</h1>
-  <p>最小演示页。完整业务流程通过README中的JSON接口调用。</p>
-  <div class="row"><button id="load">加载记录</button><button id="stats">查看状态统计</button></div>
-  <pre id="output">点击上方按钮读取服务状态。</pre>
+  <h1>税务稽查案件与复议流程 <span class="muted">决定版本制</span></h1>
+  <p class="muted">形成建议时冻结税期、证据与金额；复核确认后替换当前决定，旧版继续可查；复议登记绑定当时版本，按送达日计算期限，逾期留档且不予受理；撤回或结案后更新待办。</p>
+
+  <div class="card">
+    <h2>1. 建立/选择案件</h2>
+    <div class="row">
+      <div><label>案件编号</label><input id="reference" value="TAX-26001"></div>
+      <div><label>纳税人</label><input id="taxpayer" value="Star Ltd"></div>
+      <div><label>税期</label><input id="tax_period" value="2025-Q4"></div>
+    </div>
+    <div class="row">
+      <div><label>申报税额</label><input id="declared_tax" type="number" value="500000"></div>
+      <div><label>核定税额</label><input id="assessed_tax" type="number" value="760000"></div>
+      <div><label>处罚比例</label><input id="penalty_rate" type="number" step="0.01" value="0.2"></div>
+    </div>
+    <div class="row">
+      <div><label>证据数量</label><input id="evidence_count" type="number" value="4"></div>
+      <div><label>滞纳天数</label><input id="days_late" type="number" value="90"></div>
+      <div><label>复议期限(天)</label><input id="appeal_deadline_day" type="number" value="60"></div>
+    </div>
+    <p class="row" style="margin-top:.7rem">
+      <button class="primary" onclick="createRecord()">建立案件</button>
+      <button onclick="loadBoard()">读取案件</button>
+      <span id="caseInfo" class="muted"></span>
+    </p>
+  </div>
+
+  <div class="grid" style="margin-top:1rem">
+    <div class="card current">
+      <h2>2. 当前决定版本</h2>
+      <div id="currentVersion"><div class="empty">尚无确认版本</div></div>
+    </div>
+    <div class="card pending">
+      <h2>3. 待确认版本</h2>
+      <div id="pendingVersion"><div class="empty">尚无待确认建议</div></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:1rem">
+    <h2>4. 流程操作</h2>
+    <div id="actions" class="muted">请先建立或读取案件。</div>
+  </div>
+
+  <div class="grid" style="margin-top:1rem">
+    <div class="card">
+      <h2>5. 待办</h2>
+      <div id="todos"><div class="empty">暂无待办</div></div>
+    </div>
+    <div class="card">
+      <h2>6. 复议登记</h2>
+      <div id="appeals"><div class="empty">暂无复议登记</div></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:1rem">
+    <h2>7. 版本历史（旧版继续可查）</h2>
+    <div id="history"><div class="empty">暂无版本</div></div>
+  </div>
+
+  <div class="card" style="margin-top:1rem">
+    <h2>接口原始响应</h2>
+    <pre id="output">操作结果将显示在这里。</pre>
+  </div>
 </main>
+
 <script>
-const headers = {"X-User-Id":"demo-admin","X-Role":"admin","X-Org":"demo"};
-async function show(path) {
-  const response = await fetch(path, {headers});
-  const data = await response.json();
-  document.getElementById("output").textContent = JSON.stringify(data, null, 2);
+const H = {"X-User-Id":"demo-user","X-Role":"admin","X-Org":"demo", "Content-Type":"application/json"};
+let recordId = null;
+let recordVersion = null;
+
+function out(data) { document.getElementById("output").textContent = JSON.stringify(data, null, 2); }
+function money(v) { return Number(v).toLocaleString("zh-CN", {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
+function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+async function api(path, opts) {
+  const resp = await fetch(path, opts || {headers: H});
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw Object.assign(new Error(data.message || ("HTTP " + resp.status)), {data});
+  return data;
 }
-document.getElementById("load").onclick = () => show("/api/records?limit=20");
-document.getElementById("stats").onclick = () => show("/api/stats");
+
+async function createRecord() {
+  const payload = {
+    reference: document.getElementById("reference").value.trim(),
+    data: {
+      taxpayer: document.getElementById("taxpayer").value.trim(),
+      tax_period: document.getElementById("tax_period").value.trim(),
+      declared_tax: Number(document.getElementById("declared_tax").value),
+      assessed_tax: Number(document.getElementById("assessed_tax").value),
+      penalty_rate: Number(document.getElementById("penalty_rate").value),
+      evidence_count: Number(document.getElementById("evidence_count").value),
+      days_late: Number(document.getElementById("days_late").value),
+      appeal_deadline_day: Number(document.getElementById("appeal_deadline_day").value)
+    }
+  };
+  try {
+    const rec = await api("/api/records", {method: "POST", headers: H, body: JSON.stringify(payload)});
+    recordId = rec.id; recordVersion = rec.version;
+    await loadBoard();
+  } catch (e) { out(e.data || {error: e.message}); }
+}
+
+function versionCard(v, compact) {
+  const s = v.snapshot || {};
+  return `
+    <div>第 <b>${v.version_no}</b> 版<span class="badge ${v.status}">${{pending:"待确认",current:"当前版",superseded:"已下线"}[v.status] || v.status}</span>
+      <span class="muted">${v.origin === "proposal" ? "建议形成" : "复核调减"}${v.source_version_no ? "（源于第" + v.source_version_no + "版）" : ""}</span></div>
+    <table>
+      <tr><th>税期</th><td>${esc(s.tax_period)}</td><th>证据</th><td>${esc(v.evidence_count)} 项：${esc((v.evidence_refs||[]).join("、")) || "—"}</td></tr>
+      <tr><th>补税</th><td>${money(s.tax_difference || 0)}</td><th>滞纳金</th><td>${money(s.interest || 0)}</td></tr>
+      <tr><th>处罚</th><td>${money(s.penalty || 0)}</td><th>合计</th><td><b>${money(s.total_due || 0)}</b></td></tr>
+      <tr><th>建议</th><td colspan="3">${esc(v.proposal)}</td></tr>
+      ${v.service_day != null ? `<tr><th>送达日/届满日</th><td colspan="3">第 ${v.service_day} 天 / 第 ${v.deadline_day} 天（${esc(v.review_outcome)}：${esc(v.review_note || "")}）</td></tr>` : ""}
+    </table>`;
+}
+
+function renderBoard(b) {
+  const rec = b.record;
+  recordId = rec.id; recordVersion = rec.version;
+  document.getElementById("caseInfo").textContent = `#${rec.id} ${rec.reference} · 状态：${rec.state} · 版本：${rec.version}`;
+  document.getElementById("currentVersion").innerHTML = b.current_version ? versionCard(b.current_version) : '<div class="empty">尚无确认版本</div>';
+  document.getElementById("pendingVersion").innerHTML = b.pending_version ? versionCard(b.pending_version) : '<div class="empty">尚无待确认建议</div>';
+
+  const todos = b.todos || [];
+  document.getElementById("todos").innerHTML = todos.length
+    ? todos.map(t => `<div class="todo-title"><span class="badge ${t.status}">${t.status === "open" ? "待办" : "已办"}</span> ${esc(t.title)}</div>`).join("")
+    : '<div class="empty">暂无待办</div>';
+
+  const appeals = b.appeals || [];
+  document.getElementById("appeals").innerHTML = appeals.length
+    ? appeals.map(a => `<div class="todo-title">
+        <span class="badge ${a.status}">${{accepted:"已受理",rejected_overdue:"逾期不受理",withdrawn:"已撤回",closed:"已结案"}[a.status] || a.status}</span>
+        绑定第 ${a.version_no} 版 · 申请日第 ${a.appeal_day} 天（送达第 ${a.service_day} 天，届满第 ${a.deadline_day} 天）
+      </div>${a.rejection_note ? `<div class="warn">${esc(a.rejection_note)}</div>` : ""}
+      <div class="muted" style="margin:.2rem 0 .5rem">理由：${esc(a.reason)}</div>`).join("")
+    : '<div class="empty">暂无复议登记</div>';
+
+  const versions = b.versions || [];
+  document.getElementById("history").innerHTML = versions.length
+    ? `<table><tr><th>版本</th><th>状态</th><th>来源</th><th>税期</th><th>证据</th><th>补税</th><th>滞纳金</th><th>处罚</th><th>合计</th><th>送达/届满</th></tr>`
+      + versions.map(v => `<tr><td>第${v.version_no}版</td><td><span class="badge ${v.status}">${v.status}</span></td>
+        <td>${v.origin === "proposal" ? "建议" : "调减"}${v.source_version_no ? "←第" + v.source_version_no + "版" : ""}</td>
+        <td>${esc(v.snapshot.tax_period)}</td><td>${v.evidence_count}（${(v.evidence_refs||[]).length}条引用）</td>
+        <td>${money(v.snapshot.tax_difference || 0)}</td><td>${money(v.snapshot.interest || 0)}</td>
+        <td>${money(v.snapshot.penalty || 0)}</td><td><b>${money(v.snapshot.total_due || 0)}</b></td>
+        <td>${v.service_day != null ? v.service_day + " / " + v.deadline_day : "—"}</td></tr>`).join("") + `</table>`
+    : '<div class="empty">暂无版本</div>';
+
+  renderActions(rec, b);
+}
+
+function renderActions(rec, b) {
+  const v = recordVersion;
+  let html = "";
+  if (rec.state === "opened") {
+    html = `<div class="row"><div><label>稽查计划</label><input id="plan" value="核对账簿与凭证"></div>
+      <button class="primary" onclick="act('investigate', {plan: document.getElementById('plan').value})">开始稽查调查</button></div>`;
+  } else if (rec.state === "investigating") {
+    html = `<div class="row">
+      <div style="flex:2"><label>处理建议</label><input id="proposal" value="补税并加收滞纳金、处罚款"></div>
+      <div style="flex:2"><label>证据引用（逗号分隔，随建议冻结）</label><input id="evidence_refs" value="EVD-001,EVD-002,EVD-003"></div>
+      <button class="primary" onclick="propose()">形成建议（冻结版本）</button></div>
+      <p class="muted">建议形成后，若税期、证据或金额变化，只能通过复核调减产生新版本，不改动已冻结版本。</p>`;
+  } else if (rec.state === "proposed" && b.pending_version) {
+    const pv = b.pending_version.version_no;
+    html = `<div class="row">
+      <div><label>复核结论</label><select id="outcome"><option value="accepted">确认（替换当前决定）</option><option value="reduced">调减（生成新版本）</option><option value="remanded">退回（重新调查）</option></select></div>
+      <div><label>送达日（第几天）</label><input id="service_day" type="number" value="10"></div>
+      <div><label>调减比例（仅调减）</label><input id="reduction_pct" type="number" step="0.05" value="0.5"></div>
+      <div style="flex:2"><label>复核说明</label><input id="review_note" value="证据充分，金额无误"></div>
+      <button class="primary" onclick="review()">复核确认第${pv}版</button></div>`;
+  } else if (rec.state === "reviewed") {
+    const cv = b.current_version;
+    html = `<div class="row">
+      <div><label>复议申请日（第几天）</label><input id="appeal_day" type="number" value="${cv ? cv.deadline_day : 0}"></div>
+      <div style="flex:2"><label>复议理由</label><input id="appeal_reason" value="对证据认定和金额有异议"></div>
+      <button class="primary" onclick="appeal()">登记复议（绑定第${cv ? cv.version_no : "?"}版）</button></div>
+      <p class="muted">期限自送达日起算：${cv ? `第 ${cv.service_day} 天送达，第 ${cv.deadline_day} 天届满；` : ""}超过届满日将登记为“逾期不受理”并留档，案件状态不变。</p>
+      <div class="row"><button onclick="closeCase()">结案</button><div style="flex:1"><label>结案说明</label><input id="final_decision" value="维持处理决定"></div></div>`;
+  } else if (rec.state === "appealed") {
+    html = `<div class="row">
+      <button class="danger" onclick="act('withdraw_appeal', {})">撤回复议</button>
+      <button onclick="closeCase()">结案</button>
+      <div style="flex:1"><label>结案说明</label><input id="final_decision" value="复议审理后结案"></div></div>
+      <p class="muted">撤回复议后案件回到“已复核”，答复待办关闭；结案则关闭全部待办。</p>`;
+  } else if (rec.state === "closed") {
+    html = '<div class="empty">案件已结案，版本、复议登记与待办记录均保留可查。</div>';
+  }
+  document.getElementById("actions").innerHTML = html;
+}
+
+async function act(action, data) {
+  try {
+    const result = await api(`/api/records/${recordId}/actions/${action}`, {
+      method: "POST", headers: H, body: JSON.stringify({expected_version: recordVersion, data})
+    });
+    out(result);
+    await loadBoard();
+  } catch (e) { out(e.data || {error: e.message}); }
+}
+
+async function propose() {
+  const refs = document.getElementById("evidence_refs").value.split(",").map(s => s.trim()).filter(Boolean);
+  await act("propose", {proposal: document.getElementById("proposal").value, evidence_refs: refs});
+}
+
+async function review() {
+  const data = {
+    outcome: document.getElementById("outcome").value,
+    service_day: Number(document.getElementById("service_day").value),
+    reduction_pct: Number(document.getElementById("reduction_pct").value),
+    review_note: document.getElementById("review_note").value
+  };
+  await act("review", data);
+}
+
+async function appeal() {
+  await act("appeal", {appeal_day: Number(document.getElementById("appeal_day").value), appeal_reason: document.getElementById("appeal_reason").value});
+}
+
+async function closeCase() {
+  await act("close", {final_decision: (document.getElementById("final_decision") || {}).value || "结案"});
+}
+
+async function loadBoard() {
+  const ref = document.getElementById("reference").value.trim();
+  try {
+    let id = recordId;
+    if (!id) {
+      const list = await api(`/api/records?limit=500`, {headers: H});
+      const found = (list.items || []).find(r => r.reference === ref);
+      if (!found) { out({error: "未找到案件，请先建立", reference: ref}); return; }
+      id = found.id;
+    }
+    const b = await api(`/api/records/${id}/board`, {headers: H});
+    recordId = id;
+    renderBoard(b);
+    out(b);
+  } catch (e) { out(e.data || {error: e.message}); }
+}
 </script>
 </body>
 </html>
