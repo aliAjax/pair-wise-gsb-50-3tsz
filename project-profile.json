@@ -1,0 +1,11 @@
+{
+  "projectId": "pair-wise-gsb-50",
+  "projectName": "pair-wise-gsb-50",
+  "category": "地狱 Python 模块化项目",
+  "businessDomain": "税务稽查",
+  "projectForm": "完整项目",
+  "codeScope": "backend, frontend",
+  "languages": ["Python", "HTML", "CSS", "JavaScript"],
+  "summary": "税务稽查案件与复议流程服务，覆盖补税、滞纳金、处罚计算和证据完整性。",
+  "containerized": false
+}
