@@ -12,6 +12,11 @@ from .domain import Actor, DomainError, PermissionDenied, ValidationError
 RECORD_RE = re.compile(r"^/api/records/(\d+)$")
 ACTION_RE = re.compile(r"^/api/records/(\d+)/actions/([a-z_]+)$")
 AUDIT_RE = re.compile(r"^/api/records/(\d+)/audit$")
+VERSIONS_RE = re.compile(r"^/api/records/(\d+)/versions$")
+VERSION_RE = re.compile(r"^/api/records/(\d+)/versions/(\d+)$")
+APPEALS_RE = re.compile(r"^/api/records/(\d+)/appeals$")
+TODOS_RE = re.compile(r"^/api/records/(\d+)/todos$")
+OVERVIEW_RE = re.compile(r"^/api/records/(\d+)/overview$")
 
 
 def make_handler(service: Any, static_dir: Path):
@@ -76,16 +81,38 @@ def make_handler(service: Any, static_dir: Path):
                     records = service.list_records(self._actor(), state=query.get("state", [None])[0], limit=int(query.get("limit", ["100"])[0]))
                     self._send(200, {"items": records})
                     return
-                match = RECORD_RE.match(parsed.path)
+                if parsed.path == "/api/stats":
+                    self._send(200, service.stats(self._actor()))
+                    return
+                match = OVERVIEW_RE.match(parsed.path)
                 if match:
-                    self._send(200, service.get_record(self._actor(), int(match.group(1))))
+                    self._send(200, service.overview(self._actor(), int(match.group(1))))
+                    return
+                match = VERSIONS_RE.match(parsed.path)
+                if match:
+                    self._send(200, {"items": service.list_versions(self._actor(), int(match.group(1)))})
+                    return
+                match = VERSION_RE.match(parsed.path)
+                if match:
+                    self._send(200, service.get_version(self._actor(), int(match.group(1)), int(match.group(2))))
+                    return
+                match = APPEALS_RE.match(parsed.path)
+                if match:
+                    self._send(200, {"items": service.list_appeals(self._actor(), int(match.group(1)))})
+                    return
+                match = TODOS_RE.match(parsed.path)
+                if match:
+                    query = parse_qs(parsed.query)
+                    only_open = query.get("open", ["1"])[0] not in ("0", "false")
+                    self._send(200, {"items": service.list_todos(self._actor(), int(match.group(1)), only_open=only_open)})
                     return
                 match = AUDIT_RE.match(parsed.path)
                 if match:
                     self._send(200, {"items": service.timeline(self._actor(), int(match.group(1)))})
                     return
-                if parsed.path == "/api/stats":
-                    self._send(200, service.stats(self._actor()))
+                match = RECORD_RE.match(parsed.path)
+                if match:
+                    self._send(200, service.get_record(self._actor(), int(match.group(1))))
                     return
                 self._send(404, {"error": "not_found", "message": "路径不存在"})
             except Exception as exc:
@@ -98,6 +125,12 @@ def make_handler(service: Any, static_dir: Path):
                 if parsed.path == "/api/records":
                     record = service.create(self._actor(), body.get("reference", ""), body.get("data", {}))
                     self._send(201, record)
+                    return
+                match = APPEALS_RE.match(parsed.path)
+                if match:
+                    result = service.register_appeal(self._actor(), int(match.group(1)), body.get("data", {}))
+                    # 逾期登记不予受理仍返回200，由 accepted/within_window 字段区分
+                    self._send(200, result)
                     return
                 match = ACTION_RE.match(parsed.path)
                 if match:

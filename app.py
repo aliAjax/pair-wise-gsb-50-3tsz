@@ -8,7 +8,6 @@ from src.repository import Repository
 from src.rules import DomainRules
 from src.service import Service
 
-
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_DB = BASE_DIR / "tax-audit.db"
 DEFAULT_PORT = 8326
